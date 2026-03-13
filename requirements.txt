@@ -1,0 +1,6 @@
+Flask
+python-dotenv
+twilio
+bleak
+requests
+pyngrok
