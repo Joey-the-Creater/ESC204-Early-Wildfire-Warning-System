@@ -1,10 +1,6 @@
 # ESC204-Early-Wildfire-Warning-System 
 
 
-
-
-# 🔥 ESC204 Fire Detection & Alert System
-
 This project is a comprehensive Internet of Things (IoT) Fire Detection and Alert System. It uses a Raspberry Pi Pico W connected to environmental and gas sensors to monitor local conditions. The data is transmitted to a host computer (via Bluetooth Low Energy or Wi-Fi), which then runs a Flask web dashboard. If hazardous conditions (high heat, low humidity, smoke, or combustible gases) are detected, the system assesses the risk and automatically sends emergency SMS and Email alerts to subscribed users.
 
 ---
