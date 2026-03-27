@@ -150,7 +150,7 @@ def assess_risk(data):
         color = "#d9534f"
         message = "Extreme danger! " + ", ".join(reasons) + ". Evacuate immediately."
         send_fire_alerts()  # Trigger alerts if critical risk is detected
-    elif score >= 2:
+    elif score >= 3:
         level = "MODERATE"
         color = "#f0ad4e"
         message = "Warning: " + ", ".join(reasons) + ". Increase monitoring."

@@ -11,7 +11,7 @@ led = Pin('LED', Pin.OUT)
 led.value(0)
 
 # --- Sensor Initialization ---
-i2c = I2C(0, scl=Pin(5), sda=Pin(4))
+i2c = I2C(1, scl=Pin(15), sda=Pin(14))
 bme = bme680.BME680_I2C(i2c=i2c, address=0x76)
 
 pin = 26
