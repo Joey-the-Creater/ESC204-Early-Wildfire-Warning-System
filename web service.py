@@ -72,19 +72,20 @@ class WildfireMonitor:
         reasons = []
 
         # 1. ENVIRONMENTAL METRICS
-        if current_temp > 50:
+        if current_temp > 60:
+            environmental_score += 7
+            reasons.append("critical heat levels")
+        elif current_temp > 55:
+            environmental_score += 4
+            reasons.append("dangerous heat levels")
+        elif current_temp > 50:
             environmental_score += 2
             reasons.append("extreme heat")
         elif current_temp > 45:
             environmental_score += 1
             reasons.append("elevated temperature")
-        elif current_temp > 55:
-            environmental_score += 4
-            reasons.append("dangerous heat levels")
-        elif current_temp > 60:
-            environmental_score += 7
-            reasons.append("critical heat levels")
-
+        
+        
         if current_hum < 15:
             environmental_score += 2
             reasons.append("critically dry")
@@ -93,15 +94,15 @@ class WildfireMonitor:
             reasons.append("very low humidity")
 
         # 2. CHEMICAL METRICS
-        if current_smoke > 400:
-            chemical_score += 2
+        if current_smoke > 1000:
+            chemical_score += 5
+            reasons.append("very high smoke levels")
+        elif current_smoke > 500:
+            chemical_score += 3
             reasons.append("severe smoke detected")
         elif current_smoke > 200:
             chemical_score += 1
             reasons.append("elevated smoke")
-        elif current_smoke > 600:
-            chemical_score += 4
-            reasons.append("dangerous smoke levels")
 
         # 3. RATE OF CHANGE (RoC)
         if len(self.history) > 1:
@@ -163,6 +164,7 @@ HTML_TEMPLATE = """
         button { background-color: #d9534f; color: white; padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; width: 100%; font-size: 1.1em;}
         button:hover { background-color: #c9302c; }
         .risk-card { display: flex; width: 350px; flex-direction: column; justify-content: space-between; }
+        .optional-text { font-size: 0.8em; color: #777; font-weight: normal; }
     </style>
 </head>
 <body>
@@ -186,7 +188,7 @@ HTML_TEMPLATE = """
 
         <div class="card">
             <h2>Get Alerts</h2>
-            <p style="font-size: 0.9em; color: #555;">Register to receive SMS and Email alerts if fire or smoke is detected.</p>
+            <p style="font-size: 0.9em; color: #555;">Register to receive SMS or Email alerts if fire or smoke is detected.</p>
             
             {% if message %}
                 <div style="background-color: #dff0d8; color: #3c763d; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
@@ -194,15 +196,15 @@ HTML_TEMPLATE = """
                 </div>
             {% endif %}
 
-            <form action="/register" method="POST">
+            <form action="/register" method="POST" onsubmit="return validateForm()">
                 <label>Name:</label>
                 <input type="text" name="name" required placeholder="John Doe">
                 
-                <label>Phone Number:</label>
-                <input type="text" name="phone" required placeholder="+16475071400">
+                <label>Phone Number: <span class="optional-text">(Required if no email)</span></label>
+                <input type="text" name="phone" id="phone" placeholder="+16475071400">
                 
-                <label>Email Address:</label>
-                <input type="email" name="email" required placeholder="john@example.com">
+                <label>Email Address: <span class="optional-text">(Required if no phone)</span></label>
+                <input type="email" name="email" id="email" placeholder="john@example.com">
                 
                 <button type="submit">Subscribe to Alerts</button>
             </form>
@@ -213,6 +215,19 @@ HTML_TEMPLATE = """
             <p style="font-size: 1.1em; color: #555;">{{ risk.message }}</p>
         </div>
     </div>
+
+    <script>
+        function validateForm() {
+            var phone = document.getElementById("phone").value.trim();
+            var email = document.getElementById("email").value.trim();
+
+            if (phone === "" && email === "") {
+                alert("Please provide either a Phone Number or an Email Address so we can send you alerts.");
+                return false; // Prevents the form from submitting
+            }
+            return true; // Allows the form to submit
+        }
+    </script>
 </body>
 </html>
 """
@@ -265,21 +280,24 @@ def send_fire_alerts():
 
     for sub in subs:
         # Send SMS
-        try:
-            twilio_client.messages.create(
-                body=body,
-                from_=TWILIO_PHONE,
-                to=sub['phone']
-            )
-            print(f"SMS sent to {sub['phone']}")
-        except Exception as e: print(f"Failed to send SMS to {sub['phone']}: {e}")
+        if sub['phone']:
+            try:
+                twilio_client.messages.create(
+                    body=body,
+                    from_=TWILIO_PHONE,
+                    to=sub['phone']
+                )
+                print(f"SMS sent to {sub['phone']}")
+            except Exception as e: 
+                print(f"Failed to send SMS to {sub['phone']}: {e}")
 
         # Send Email
-        try:
-            msg = f"Subject: {subject}\n\n{body}"
-            email_server.sendmail(EMAIL_ADDRESS, sub['email'], msg)
-            print(f"Email sent to {sub['email']}")
-        except Exception as e: print(f"Failed to send Email to {sub['email']}: {e}")
+        if sub['email']:
+            try:
+                msg = f"Subject: {subject}\n\n{body}"
+                email_server.sendmail(EMAIL_ADDRESS, sub['email'], msg)
+                print(f"Email sent to {sub['email']}")
+            except Exception as e: print(f"Failed to send Email to {sub['email']}: {e}")
 
     email_server.quit()
     print("All alerts processed.")

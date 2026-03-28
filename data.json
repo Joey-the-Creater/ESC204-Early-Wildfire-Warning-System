@@ -1,11 +1,11 @@
 {
-    "gas_res_ohms": 7653,
-    "hydrogen": 17.4,
-    "smoke": 45.9,
-    "methane": 27.4,
-    "humidity_pct": 23.6,
-    "temperature_c": 21.0,
-    "lpg": 9.4,
-    "pressure_hpa": 1020.7,
-    "timestamp": "2026-03-28 12:32:48"
+    "gas_res_ohms": 5800,
+    "hydrogen": 112.4,
+    "smoke": 376.6,
+    "methane": 288.7,
+    "humidity_pct": 28.9,
+    "temperature_c": 30.5,
+    "lpg": 67.3,
+    "pressure_hpa": 1019.4,
+    "timestamp": "2026-03-28 16:44:53"
 }

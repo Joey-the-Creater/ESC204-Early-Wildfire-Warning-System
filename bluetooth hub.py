@@ -55,4 +55,4 @@ async def fetch_bluetooth_data():
 if __name__ == "__main__":
     while True:
         asyncio.run(fetch_bluetooth_data())
-        time.sleep(10) # Wait 30 seconds before asking for data again
+        time.sleep(1) # Wait 30 seconds before asking for data again
