@@ -5,7 +5,10 @@ from pyngrok import ngrok, conf
 import smtplib
 import json
 import os
+import time
+from collections import deque
 from dotenv import load_dotenv
+
 load_dotenv()  # Load environment variables from .env file
 app = Flask(__name__)
 
@@ -18,6 +21,132 @@ EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
 # File to store our registered users
 SUBSCRIBERS_FILE = os.path.join(os.path.dirname(__file__), 'subscribers.json')
+
+# --- STATEFUL WILDFIRE MONITOR CLASS ---
+class WildfireMonitor:
+    def __init__(self, window_size=5):
+        self.history = deque(maxlen=window_size)
+        
+        # --- NEW: Track the last processed file and the last result ---
+        self.last_timestamp = None
+        self.last_result = {
+            "level": "UNKNOWN", 
+            "color": "#777", 
+            "message": "Waiting for initial sensor data..."
+        }
+
+    def assess_risk(self, data):
+        if "error" in data:
+            return {"level": "UNKNOWN", "color": "#777", "message": "Cannot assess risk. Sensor data unavailable."}
+
+        # --- NEW: The Staleness Gate ---
+        current_timestamp = data.get("timestamp")
+        
+        # If the timestamp exists and matches the last one we saw, the file hasn't updated.
+        # Just return the cached result without polluting the history deque.
+        if current_timestamp and current_timestamp == self.last_timestamp:
+            return self.last_result
+
+        try:
+            current_temp = float(data.get("temperature_c", 0) or 0)
+            current_hum = float(data.get("humidity_pct", 100) or 100)
+            current_smoke = float(data.get("smoke", 0) or 0)
+            current_methane = float(data.get("methane", 0) or 0)
+            current_hydrogen = float(data.get("hydrogen", 0) or 0)
+        except ValueError:
+            return {"level": "ERROR", "color": "#777", "message": "Invalid data format."}
+
+        # Update our tracker to the new file's timestamp
+        self.last_timestamp = current_timestamp
+
+        # Save current reading to history
+        current_reading = {
+            "time": time.time(), # We still use system time here to gauge real-world elapsed time
+            "temp": current_temp,
+            "hum": current_hum,
+            "smoke": current_smoke
+        }
+        self.history.append(current_reading)
+        environmental_score = 0
+        chemical_score = 0
+        reasons = []
+
+        # 1. ENVIRONMENTAL METRICS
+        if current_temp > 50:
+            environmental_score += 2
+            reasons.append("extreme heat")
+        elif current_temp > 45:
+            environmental_score += 1
+            reasons.append("elevated temperature")
+        elif current_temp > 55:
+            environmental_score += 4
+            reasons.append("dangerous heat levels")
+        elif current_temp > 60:
+            environmental_score += 7
+            reasons.append("critical heat levels")
+
+        if current_hum < 15:
+            environmental_score += 2
+            reasons.append("critically dry")
+        elif current_hum < 25:
+            environmental_score += 1
+            reasons.append("very low humidity")
+
+        # 2. CHEMICAL METRICS
+        if current_smoke > 400:
+            chemical_score += 2
+            reasons.append("severe smoke detected")
+        elif current_smoke > 200:
+            chemical_score += 1
+            reasons.append("elevated smoke")
+        elif current_smoke > 600:
+            chemical_score += 4
+            reasons.append("dangerous smoke levels")
+
+        # 3. RATE OF CHANGE (RoC)
+        if len(self.history) > 1:
+            oldest = self.history[0]
+            time_diff_mins = (current_reading["time"] - oldest["time"]) / 60.0
+            
+            if time_diff_mins > 0:
+                if (current_temp - oldest["temp"]) / time_diff_mins > 2.0:
+                    environmental_score += 2
+                    reasons.append("rapid temperature spike")
+                
+                if (current_hum - oldest["hum"]) / time_diff_mins < -5.0:
+                    environmental_score += 1
+                    reasons.append("rapid humidity drop")
+
+                if (current_smoke - oldest["smoke"]) / time_diff_mins > 50.0:
+                    chemical_score += 1
+                    reasons.append("rapid smoke accumulation")
+
+        # 4. GATING & SCORING
+        total_score = environmental_score + chemical_score
+
+        if chemical_score < 2:
+            total_score = min(total_score, 3)
+
+        # 5. ALERT ROUTING
+        if total_score >= 7:
+            level = "CRITICAL"
+            color = "#d9534f"
+            message = "Extreme danger! " + ", ".join(reasons) + ". Evacuate immediately."
+            send_fire_alerts()  # Trigger alerts
+        elif total_score >= 4:
+            level = "MODERATE"
+            color = "#f0ad4e"
+            message = "Warning: " + ", ".join(reasons) + ". Increase monitoring."
+        else:
+            level = "LOW"
+            color = "#5cb85c"
+            message = "Conditions are normal." if total_score == 0 else "Elevated metrics: " + ", ".join(reasons)
+
+        self.last_result = {"level": level, "color": color, "message": message}
+        return self.last_result
+
+# Instantiate our monitor globally so it remembers history across requests
+fire_monitor = WildfireMonitor(window_size=5)
 
 # --- HTML TEMPLATE ---
 HTML_TEMPLATE = """
@@ -80,7 +209,7 @@ HTML_TEMPLATE = """
         </div>
         <div class="card risk-card" style="border-top: 6px solid {{ risk.color }}; text-align: center;">
             <h2 style="color: {{ risk.color }}; border-bottom: none;">Current Risk Level</h2>
-            <h1 style="font-size: 2 em; margin: 1 px 0; color: {{ risk.color }};">{{ risk.level }}</h1>
+            <h1 style="font-size: 2em; margin: 10px 0; color: {{ risk.color }};">{{ risk.level }}</h1>
             <p style="font-size: 1.1em; color: #555;">{{ risk.message }}</p>
         </div>
     </div>
@@ -95,71 +224,6 @@ def get_sensor_data():
         with open(file_path, 'r') as f: return json.load(f)
     except:
         return {"error": "Data file not found."}
-
-def assess_risk(data):
-    """
-    Evaluates sensor data to determine a fire/leak risk level using a scoring system.
-    Returns a dictionary with the risk level, a display color, and a message.
-    """
-    if "error" in data:
-        return {"level": "UNKNOWN", "color": "#777", "message": "Cannot assess risk. Sensor data unavailable."}
-
-    try:
-        temperature = float(data.get("temperature_c", 0) or 0)
-        humidity = float(data.get("humidity_pct", 100) or 100)
-        smoke = float(data.get("smoke", 0) or 0)
-        methane = float(data.get("methane", 0) or 0)
-        hydrogen = float(data.get("hydrogen", 0) or 0)
-    except ValueError:
-        return {"level": "ERROR", "color": "#777", "message": "Invalid sensor data format."}
-
-    score = 0
-    reasons = []
-
-    if temperature > 50:
-        score += 2
-        reasons.append("very high temperature")
-    elif temperature > 40:
-        score += 1
-        reasons.append("elevated temperature")
-
-    if humidity < 25:
-        score += 2
-        reasons.append("very low humidity")
-    elif humidity < 35:
-        score += 1
-        reasons.append("low humidity")
-
-    if smoke > 200:
-        score += 2
-        reasons.append("high smoke level")
-    elif smoke > 150:
-        score += 1
-        reasons.append("elevated smoke level")
-
-    if methane > 100:
-        score += 1
-        reasons.append("elevated methane")
-
-    if hydrogen > 50:
-        score += 1
-        reasons.append("elevated hydrogen")
-
-    if score >= 5:
-        level = "CRITICAL"
-        color = "#d9534f"
-        message = "Extreme danger! " + ", ".join(reasons) + ". Evacuate immediately."
-        send_fire_alerts()  # Trigger alerts if critical risk is detected
-    elif score >= 3:
-        level = "MODERATE"
-        color = "#f0ad4e"
-        message = "Warning: " + ", ".join(reasons) + ". Increase monitoring."
-    else:
-        level = "LOW"
-        color = "#5cb85c"
-        message = "Conditions are normal and safe."
-
-    return {"level": level, "color": color, "message": message}
 
 def get_subscribers():
     if not os.path.exists(SUBSCRIBERS_FILE):
@@ -227,8 +291,8 @@ def web_dashboard():
     success_msg = request.args.get('msg')
     data = get_sensor_data()
     
-    # Assess the risk based on current data
-    current_risk = assess_risk(data)
+    # Assess the risk based on current data using our stateful monitor
+    current_risk = fire_monitor.assess_risk(data)
     
     return render_template_string(HTML_TEMPLATE, data=data, message=success_msg, risk=current_risk)
 

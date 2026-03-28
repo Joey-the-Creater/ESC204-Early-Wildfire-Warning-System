@@ -18,8 +18,9 @@ def fetch_sensor_data():
 
             data = response.json()
             file_path = os.path.join(os.path.dirname(__file__), 'data.json')
+            # Add the timestamp immediately so it is included in the printout
+            data['timestamp'] = time.strftime('%Y-%m-%d %H:%M:%S')
             with open(file_path, 'w') as f:
-                data['timestamp'] = time.strftime('%Y-%m-%d %H:%M:%S')
                 json.dump(data, f)
             print("\n--- Sensor Data Received ---")
             print(f"Temperature: {data['temperature_c']} C")
